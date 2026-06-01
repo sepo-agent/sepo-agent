@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   check:
+    if: vars.AGENT_ENABLED != 'false'
     runs-on: ${{ fromJson(vars.AGENT_RUNS_ON || '["ubuntu-latest"]') }}
     env:
       MEMORY_REF: ${{ inputs.memory_ref || vars.AGENT_MEMORY_REF || 'agent/memory' }}
@@ -46,6 +47,7 @@ jobs:
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model_policy: ${{ vars.AGENT_MODEL_POLICY || '' }}
           required: "false"
 
       - name: Setup agent runtime
