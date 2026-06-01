@@ -26,6 +26,11 @@ title: "Supported workflows"
 | `agent-onboarding.yml` | `workflow_dispatch` | First-run setup check that creates built-in trigger labels and opens or updates a setup issue | None |
 | `test-scripts.yml` | `pull_request`, `workflow_dispatch` | CI for helper tests, YAML parsing, and shell syntax | None |
 
+All packaged `agent-*.yml` workflow jobs honor `AGENT_ENABLED=false` as a
+global Sepo pause before checkout, auth, provider resolution, or runtime setup.
+Unset `AGENT_ENABLED` or any value other than exact `false` leaves Sepo enabled.
+`test-scripts.yml` remains normal CI and is not paused by this flag.
+
 `agent-orchestrator.yml` is started explicitly through `/orchestrate` or
 `agent/orchestrate`. Dispatch triage can also select `orchestrate` for issue and
 pull request requests that ask for orchestration, follow-up automation, or
@@ -193,7 +198,7 @@ from the default branch. The canonical `self-evolving/repo` source repository
 should set `AGENT_AUTO_UPDATE=false` when scheduled self-updates are not wanted;
 manual dispatch remains available for explicit source ref testing.
 
-Single-agent routes, autonomous agent workflows, and the review synthesis step resolve their provider before installing provider CLIs. Explicit provider choices from `AGENT_DEFAULT_PROVIDER` or a route-specific override are authoritative: the workflows select that provider even when the matching repository secret is absent, so self-hosted runners can rely on local Codex or Claude authentication. When the provider is `auto`, detection uses configured provider secrets and prefers Codex when `OPENAI_API_KEY` is present; otherwise Claude is selected when either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is present. Route-specific overrides are available by editing the relevant workflow's `resolve-agent-provider` step inline. Portal and skill jobs use non-fatal early resolution before non-agent response paths, then require a provider only immediately before invoking an agent.
+Single-agent routes, autonomous agent workflows, and the review synthesis step resolve provider/model settings before installing provider CLIs. Explicit provider choices from inline workflow `route_provider`, `AGENT_MODEL_POLICY.route_overrides[route].provider`, or `AGENT_DEFAULT_PROVIDER` are authoritative: the workflows select that provider even when the matching repository secret is absent, so self-hosted runners can rely on local Codex or Claude authentication. When the provider is `auto`, detection uses configured provider secrets and prefers Codex when `OPENAI_API_KEY` is configured; otherwise Claude is selected when either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is present. `AGENT_MODEL_POLICY` can also set provider-specific models and route-specific reasoning effort; inline workflow `route_provider` remains the native escape hatch. Portal and skill jobs use non-fatal early resolution before non-agent response paths, then require a provider only immediately before invoking an agent. The review workflow's Claude/Codex reviewer lanes remain static; the policy applies to review synthesis.
 
 ## Trigger details
 

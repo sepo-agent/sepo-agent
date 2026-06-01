@@ -242,16 +242,20 @@ test("single-agent workflows resolve provider before runtime setup", () => {
     readRepoFile(".github/workflows/agent-rubrics-update.yml"),
   ];
   const resolverAction = readRepoFile(".github/actions/resolve-agent-provider/action.yml");
-  const resolverScript = readRepoFile(".github/actions/resolve-agent-provider/resolve-provider.sh");
+  const resolverImplementation = readRepoFile(".github/actions/resolve-agent-provider/resolve-provider.js");
   const configurationList = readRepoFile(".agent/docs/customization/configuration-list.md");
 
-  assert.match(resolverAction, /resolve-provider\.sh/);
-  assert.match(resolverScript, /DEFAULT_PROVIDER/);
-  assert.match(resolverScript, /OPENAI_API_KEY/);
-  assert.match(resolverScript, /CLAUDE_CODE_OAUTH_TOKEN/);
-  assert.match(resolverScript, /ANTHROPIC_API_KEY/);
-  assert.match(resolverScript, /provider=codex/);
-  assert.match(resolverScript, /provider=claude/);
+  assert.match(resolverAction, /node "\$\{GITHUB_ACTION_PATH\}\/resolve-provider\.js"/);
+  assert.doesNotMatch(resolverAction, /resolve-provider\.sh/);
+  assert.match(resolverAction, /model_policy:/);
+  assert.doesNotMatch(resolverAction, /display_model:/);
+  assert.match(resolverImplementation, /DEFAULT_PROVIDER/);
+  assert.match(resolverImplementation, /AGENT_MODEL_POLICY/);
+  assert.match(resolverImplementation, /OPENAI_API_KEY/);
+  assert.match(resolverImplementation, /CLAUDE_CODE_OAUTH_TOKEN/);
+  assert.match(resolverImplementation, /ANTHROPIC_API_KEY/);
+  assert.match(resolverImplementation, /provider = "codex"/);
+  assert.match(resolverImplementation, /provider = "claude"/);
 
   assert.match(routerWorkflow, /default:\s*auto/);
   assert.doesNotMatch(routerWorkflow, /vars\.AGENT_PROVIDER_(DISPATCH|ANSWER|SKILL)/);
@@ -261,13 +265,19 @@ test("single-agent workflows resolve provider before runtime setup", () => {
   assert.match(routerWorkflow, /agent:\s*\$\{\{\s*steps\.dispatch_provider\.outputs\.provider\s*\}\}/);
   assert.match(routerWorkflow, /agent:\s*\$\{\{\s*steps\.skill_provider\.outputs\.provider\s*\}\}/);
   assert.match(routerWorkflow, /agent:\s*\$\{\{\s*steps\.provider\.outputs\.provider\s*\}\}/);
+  assert.match(routerWorkflow, /display_model:\s*\$\{\{\s*vars\.AGENT_DISPLAY_MODEL \|\| ''\s*\}\}/);
+  assert.doesNotMatch(routerWorkflow, /outputs\.display_model/);
 
   for (const workflow of [implementWorkflow, fixPrWorkflow, selfApprovalWorkflow, ...autonomousWorkflows]) {
     assert.match(workflow, /uses: \.\/\.github\/actions\/resolve-agent-provider/);
     assert.match(workflow, /default_provider:\s*\$\{\{\s*vars\.AGENT_DEFAULT_PROVIDER \|\|/);
+    assert.match(workflow, /model_policy:\s*\$\{\{\s*vars\.AGENT_MODEL_POLICY \|\| ''\s*\}\}/);
     assert.match(workflow, /install_codex:\s*\$\{\{\s*steps\.provider\.outputs\.install_codex\s*\}\}/);
     assert.match(workflow, /install_claude:\s*\$\{\{\s*steps\.provider\.outputs\.install_claude\s*\}\}/);
     assert.match(workflow, /agent:\s*\$\{\{\s*steps\.provider\.outputs\.provider\s*\}\}/);
+    assert.match(workflow, /model:\s*\$\{\{\s*steps\.provider\.outputs\.model\s*\}\}/);
+    assert.match(workflow, /display_model:\s*\$\{\{\s*vars\.AGENT_DISPLAY_MODEL \|\| ''\s*\}\}/);
+    assert.doesNotMatch(workflow, /outputs\.display_model/);
     assert.match(workflow, /claude_oauth_token:\s*\$\{\{\s*secrets\.CLAUDE_CODE_OAUTH_TOKEN\s*\}\}/);
     assert.match(workflow, /anthropic_api_key:\s*\$\{\{\s*secrets\.ANTHROPIC_API_KEY\s*\}\}/);
   }
@@ -277,16 +287,84 @@ test("single-agent workflows resolve provider before runtime setup", () => {
   assert.match(reviewWorkflow, /id:\s*synthesis_provider/);
   assert.match(reviewWorkflow, /route:\s*review-synthesize/);
   assert.match(reviewWorkflow, /default_provider:\s*\$\{\{\s*vars\.AGENT_DEFAULT_PROVIDER \|\| 'auto'\s*\}\}/);
+  assert.match(reviewWorkflow, /model_policy:\s*\$\{\{\s*vars\.AGENT_MODEL_POLICY \|\| ''\s*\}\}/);
   assert.match(reviewWorkflow, /install_codex:\s*\$\{\{\s*steps\.synthesis_provider\.outputs\.install_codex\s*\}\}/);
   assert.match(reviewWorkflow, /install_claude:\s*\$\{\{\s*steps\.synthesis_provider\.outputs\.install_claude\s*\}\}/);
   assert.match(reviewWorkflow, /agent:\s*\$\{\{\s*steps\.synthesis_provider\.outputs\.provider\s*\}\}/);
+  assert.match(reviewWorkflow, /model:\s*\$\{\{\s*steps\.synthesis_provider\.outputs\.model\s*\}\}/);
+  assert.match(reviewWorkflow, /display_model:\s*\$\{\{\s*vars\.AGENT_DISPLAY_MODEL \|\| ''\s*\}\}/);
+  assert.doesNotMatch(reviewWorkflow, /outputs\.display_model/);
+  assert.match(reviewWorkflow, /reasoning_effort:\s*\$\{\{\s*steps\.synthesis_provider\.outputs\.reasoning_effort \|\| \(steps\.synthesis_provider\.outputs\.provider == 'claude' && 'max' \|\| 'xhigh'\)\s*\}\}/);
   assert.match(reviewWorkflow, /openai_api_key:\s*\$\{\{\s*secrets\.OPENAI_API_KEY\s*\}\}/);
   assert.match(reviewWorkflow, /anthropic_api_key:\s*\$\{\{\s*secrets\.ANTHROPIC_API_KEY\s*\}\}/);
+  const reviewerRunBlock = reviewWorkflow.match(
+    /- name: Run \$\{\{ matrix\.agent \}\} review[\s\S]*?(?=\n      - name: Persist review artifacts)/,
+  )?.[0] || "";
+  assert.doesNotMatch(reviewerRunBlock, /model_policy:/);
+  assert.doesNotMatch(reviewerRunBlock, /model:\s*\$\{\{\s*steps\./);
   assert.doesNotMatch(implementWorkflow, /vars\.AGENT_PROVIDER_IMPLEMENT/);
   assert.doesNotMatch(fixPrWorkflow, /vars\.AGENT_PROVIDER_FIX_PR/);
 
   assert.match(configurationList, /AGENT_DEFAULT_PROVIDER/);
+  assert.match(configurationList, /AGENT_MODEL_POLICY/);
   assert.doesNotMatch(configurationList, /AGENT_PROVIDER_IMPLEMENT/);
+});
+
+test("packaged Sepo workflows have a global AGENT_ENABLED job guard", () => {
+  const workflowFiles = readdirSync(path.join(repoRoot, ".github/workflows"))
+    .filter((file) => file.startsWith("agent-") && file.endsWith(".yml"))
+    .sort();
+  const guardPattern = /vars\.AGENT_ENABLED\s*!=\s*'false'/;
+
+  assert.ok(workflowFiles.length > 0, "expected packaged agent workflows");
+  assert.ok(!workflowFiles.includes("test-scripts.yml"));
+
+  for (const file of workflowFiles) {
+    const workflowPath = `.github/workflows/${file}`;
+    const workflow = parseYaml(readRepoFile(workflowPath)) as unknown;
+    assert.ok(isRecord(workflow), `${workflowPath} should parse as a YAML object`);
+    assert.ok(isRecord(workflow.jobs), `${workflowPath} should define jobs`);
+
+    for (const [jobId, job] of Object.entries(workflow.jobs)) {
+      assert.ok(isRecord(job), `${workflowPath} job ${jobId} should be an object`);
+      const jobIf = job.if;
+      if (typeof jobIf !== "string") {
+        assert.fail(`${workflowPath} job ${jobId} should define a job-level pause guard`);
+      }
+      assert.match(
+        jobIf,
+        guardPattern,
+        `${workflowPath} job ${jobId} should check AGENT_ENABLED before running`,
+      );
+    }
+  }
+
+  const actionTemplate = parseYaml(
+    readRepoFile(".agent/action-templates/agent-action-template.yml"),
+  ) as unknown;
+  assert.ok(isRecord(actionTemplate), "agent action template should parse as a YAML object");
+  assert.ok(isRecord(actionTemplate.jobs), "agent action template should define jobs");
+  const runJob = actionTemplate.jobs.run;
+  assert.ok(isRecord(runJob), "agent action template should define the run job");
+  const runJobIf = runJob.if;
+  if (typeof runJobIf !== "string") {
+    assert.fail("agent action template run job should define a job-level pause guard");
+  }
+  assert.match(runJobIf, guardPattern);
+
+  const configurationList = readRepoFile(".agent/docs/customization/configuration-list.md");
+  const supportedWorkflows = readRepoFile(".agent/docs/usage/supported-workflows.md");
+  const agentActions = readRepoFile(".agent/docs/usage/agent-actions.md");
+  const memoryDocs = readRepoFile(".agent/docs/architecture/memory.md");
+  const readme = readRepoFile("README.md");
+  const docsIndex = readRepoFile(".agent/docs/index.md");
+
+  assert.match(configurationList, /`AGENT_ENABLED`[\s\S]*Global Sepo pause switch/);
+  assert.match(supportedWorkflows, /All packaged `agent-\*\.yml` workflow jobs honor `AGENT_ENABLED=false`/);
+  assert.match(agentActions, /template includes the same `AGENT_ENABLED=false` job/);
+  assert.match(memoryDocs, /pause all Sepo workflow entry points[\s\S]*`AGENT_ENABLED`/);
+  assert.match(readme, /AGENT_ENABLED=false/);
+  assert.match(docsIndex, /AGENT_ENABLED=false/);
 });
 
 test("scheduled workflows evaluate skip gates before provider-dependent jobs", () => {
@@ -301,12 +379,12 @@ test("scheduled workflows evaluate skip gates before provider-dependent jobs", (
   assert.doesNotMatch(gateAction, /\.agent\/dist\/cli\/resolve-scheduled-activity-gate\.js/);
 
   assert.match(memoryScanWorkflow, /gate:\n[\s\S]*Resolve scheduled activity gate/);
-  assert.match(memoryScanWorkflow, /scan:\n\s+needs: gate\n\s+if: needs\.gate\.outputs\.skip != 'true'/);
+  assert.match(memoryScanWorkflow, /scan:\n\s+needs: gate\n\s+if: vars\.AGENT_ENABLED != 'false' && needs\.gate\.outputs\.skip != 'true'/);
   assert.match(memoryScanWorkflow, /Resolve memory scan provider[\s\S]*Setup agent runtime/);
   assert.doesNotMatch(memoryScanWorkflow, /if: steps\.gate\.outputs\.skip != 'true'/);
 
   assert.match(memorySyncWorkflow, /gate:\n[\s\S]*Resolve scheduled activity gate/);
-  assert.match(memorySyncWorkflow, /sync:\n\s+needs: gate\n\s+if: needs\.gate\.outputs\.skip != 'true'/);
+  assert.match(memorySyncWorkflow, /sync:\n\s+needs: gate\n\s+if: vars\.AGENT_ENABLED != 'false' && needs\.gate\.outputs\.skip != 'true'/);
   assert.doesNotMatch(memorySyncWorkflow, /if: steps\.gate\.outputs\.skip != 'true'/);
 
   assert.match(updateWorkflow, /gate:\n[\s\S]*Resolve scheduled activity gate/);
@@ -315,7 +393,7 @@ test("scheduled workflows evaluate skip gates before provider-dependent jobs", (
   assert.doesNotMatch(updateWorkflow, /Resolve canonical source guard/);
   assert.match(updateWorkflow, /Check pending update PR[\s\S]*if: steps\.schedule\.outputs\.skip != 'true'[\s\S]*resolve-pending-update-pr\.sh/);
   assert.match(updateWorkflow, /IGNORE_EXISTING_UPDATE_PR:\s*\$\{\{ inputs\.force && 'true' \|\| 'false' \}\}/);
-  assert.match(updateWorkflow, /update:\n\s+needs: gate\n\s+if: needs\.gate\.outputs\.skip != 'true'/);
+  assert.match(updateWorkflow, /update:\n\s+needs: gate\n\s+if: vars\.AGENT_ENABLED != 'false' && needs\.gate\.outputs\.skip != 'true'/);
   assert.match(updateWorkflow, /existing_pr_branch: \$\{\{ steps\.pending\.outputs\.branch \}\}/);
   assert.match(updateWorkflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
   assert.doesNotMatch(updateWorkflow, /ref: \$\{\{ needs\.gate\.outputs\.existing_pr_branch/);
@@ -345,10 +423,10 @@ test("scheduled workflows evaluate skip gates before provider-dependent jobs", (
   assert.doesNotMatch(updateWorkflow, /if: steps\.gate\.outputs\.skip != 'true'/);
 
   assert.match(dailySummaryWorkflow, /pre_gate:\n[\s\S]*Resolve scheduled disabled gate/);
-  assert.match(dailySummaryWorkflow, /signals:\n\s+needs: pre_gate\n\s+if: needs\.pre_gate\.outputs\.skip != 'true'/);
+  assert.match(dailySummaryWorkflow, /signals:\n\s+needs: pre_gate\n\s+if: vars\.AGENT_ENABLED != 'false' && needs\.pre_gate\.outputs\.skip != 'true'/);
   assert.match(
     dailySummaryWorkflow,
-    /daily-summary:\n\s+needs: signals\n\s+if: needs\.signals\.result == 'success' && needs\.signals\.outputs\.skip != 'true'/,
+    /daily-summary:\n\s+needs: signals\n\s+if: >-\n\s+vars\.AGENT_ENABLED != 'false' &&\n\s+needs\.signals\.result == 'success' &&\n\s+needs\.signals\.outputs\.skip != 'true'/,
   );
   assert.match(dailySummaryWorkflow, /daily-summary-signals-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
   assert.match(dailySummaryWorkflow, /Upload summary signals[\s\S]*actions\/upload-artifact@v4/);
@@ -421,7 +499,7 @@ test("review workflow captures reviewed head as best-effort prepare output", () 
   const reviewJob = workflow.jobs.review;
   assert.ok(isRecord(reviewJob), "review workflow should define review job");
   assert.deepEqual(reviewJob.needs, ["prepare"]);
-  assert.equal(reviewJob.if, "${{ !cancelled() }}");
+  assert.equal(reviewJob.if, "${{ vars.AGENT_ENABLED != 'false' && !cancelled() }}");
 
   const rubricsReviewJob = workflow.jobs["rubrics-review"];
   assert.ok(isRecord(rubricsReviewJob), "review workflow should define rubrics-review job");
@@ -503,8 +581,8 @@ test("review synthesis uses a shared reviews directory contract", () => {
   const configurationList = readRepoFile(".agent/docs/customization/configuration-list.md");
   const supportedWorkflows = readRepoFile(".agent/docs/usage/supported-workflows.md");
 
-  assert.match(reviewWorkflow, /review:\n\s*# Ordering-only:[\s\S]*?needs:\s*\[prepare\]\n\s*if:\s*\$\{\{\s*!cancelled\(\)\s*\}\}\n\s*# Reviewer lanes are best-effort[\s\S]*?continue-on-error:\s*true/);
-  assert.match(reviewWorkflow, /synthesize:\n\s*needs:\s*\[prepare,\s*review\]\n\s*if:\s*\$\{\{\s*!cancelled\(\)\s*\}\}/);
+  assert.match(reviewWorkflow, /review:\n\s*# Ordering-only:[\s\S]*?needs:\s*\[prepare\]\n\s*if:\s*\$\{\{\s*vars\.AGENT_ENABLED != 'false' && !cancelled\(\)\s*\}\}\n\s*# Reviewer lanes are best-effort[\s\S]*?continue-on-error:\s*true/);
+  assert.match(reviewWorkflow, /synthesize:\n\s*needs:\s*\[prepare,\s*review\]\n\s*if:\s*\$\{\{\s*vars\.AGENT_ENABLED != 'false' && !cancelled\(\)\s*\}\}/);
   assert.match(reviewWorkflow, /find "\$reviews_dir" -type f -name review\.md/);
   assert.match(reviewWorkflow, /REVIEWS_DIR:\s*\$\{\{\s*steps\.reviews\.outputs\.reviews_dir\s*\}\}/);
   assert.doesNotMatch(reviewWorkflow, /AGENT_INLINE_COMMENT_CLEANUP_MODE/);
@@ -838,6 +916,9 @@ test("shared run-agent-task action exists and requires explicit prompt/skill/lan
   assert.match(action, /prompt:/);
   assert.match(action, /skill:/);
   assert.match(action, /skill_root:/);
+  assert.match(action, /model:/);
+  assert.match(action, /display_model:/);
+  assert.match(action, /anthropic_api_key:/);
   assert.match(action, /lane:/);
   assert.match(action, /session_policy:/);
   const sessionPolicyBlock = action.match(/session_policy:[\s\S]*?(?=^  [a-z_]+:|^outputs:)/m)?.[0] || "";
@@ -846,6 +927,9 @@ test("shared run-agent-task action exists and requires explicit prompt/skill/lan
   assert.match(action, /PROMPT_NAME/);
   assert.match(action, /SKILL_NAME/);
   assert.match(action, /SKILL_ROOT/);
+  assert.match(action, /MODEL_ID/);
+  assert.match(action, /DISPLAY_MODEL/);
+  assert.match(action, /ANTHROPIC_API_KEY/);
   assert.match(action, /LANE/);
   assert.match(action, /SESSION_POLICY/);
   assert.match(action, /\.agent\/dist\/run\.js/);
@@ -886,6 +970,19 @@ test("shared run-agent-task exposes an optional secondary GitHub token", () => {
   assert.match(basePrompt, /Do not print token values/);
   assert.match(basePrompt, /read-only credential for external GitHub repositories/);
   assert.match(basePrompt, /Do not use the secondary token for external writes/);
+});
+
+test("run-agent-task maps reasoning effort for Claude env and Codex thought level", () => {
+  const action = readRepoFile(".github/actions/run-agent-task/action.yml");
+  const runSource = readRepoFile(".agent/src/run.ts");
+  const acpxSource = readRepoFile(".agent/src/acpx-adapter.ts");
+
+  assert.match(action, /reasoning_effort:\n\s+description: "Model reasoning effort level"/);
+  assert.match(action, /MODEL_REASONING_EFFORT:\s*\$\{\{\s*inputs\.reasoning_effort\s*\}\}/);
+  assert.match(runSource, /env\.MODEL_REASONING_EFFORT = process\.env\.MODEL_REASONING_EFFORT/);
+  assert.match(runSource, /env\.CLAUDE_CODE_EFFORT_LEVEL = process\.env\.MODEL_REASONING_EFFORT/);
+  assert.match(runSource, /thoughtLevel:\s*process\.env\.MODEL_REASONING_EFFORT/);
+  assert.match(acpxSource, /"thought_level", thoughtLevel/);
 });
 
 test("run-agent-task callers pass secondary token without replacing primary auth", () => {
@@ -1237,6 +1334,7 @@ test("workflow docs record the minimal metadata contract and developer notes", (
   assert.match(requestLifecycle, /agent\/<route>-<target_kind>-<number>\/<agent>-<run_id>/);
 
   assert.match(configurationList, /AGENT_RUNS_ON/);
+  assert.match(configurationList, /AGENT_ENABLED/);
   assert.match(configurationList, /AGENT_TASK_TIMEOUT_POLICY/);
   assert.match(configurationList, /Values must be 1-360 minutes/);
   assert.match(configurationList, /AGENT_MEMORY_POLICY/);
@@ -1868,13 +1966,13 @@ test("agent-review permissions are scoped per-job: reviewers read-only, synthesi
   // Reviewer job keeps contents:read.
   assert.match(
     reviewWorkflow,
-    /review:\s*\n\s+# Ordering-only:[\s\S]*?needs: \[prepare\]\s*\n\s+if: \$\{\{ !cancelled\(\) \}\}\s*\n\s+# Reviewer lanes are best-effort[\s\S]*?permissions:\s*\n\s+# Reviewer jobs stay read-only[\s\S]*?contents: read/,
+    /review:\s*\n\s+# Ordering-only:[\s\S]*?needs: \[prepare\]\s*\n\s+if: \$\{\{ vars\.AGENT_ENABLED != 'false' && !cancelled\(\) \}\}\s*\n\s+# Reviewer lanes are best-effort[\s\S]*?permissions:\s*\n\s+# Reviewer jobs stay read-only[\s\S]*?contents: read/,
   );
 
   // Synthesize job upgrades to contents:write for the memory commit.
   assert.match(
     reviewWorkflow,
-    /synthesize:\s*\n\s+needs: \[prepare, review\]\s*\n\s+if: \$\{\{ !cancelled\(\) \}\}\s*\n\s+permissions:[\s\S]*?contents: write/,
+    /synthesize:\s*\n\s+needs: \[prepare, review\]\s*\n\s+if: \$\{\{ vars\.AGENT_ENABLED != 'false' && !cancelled\(\) \}\}\s*\n\s+permissions:[\s\S]*?contents: write/,
   );
 });
 
