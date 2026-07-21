@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
   "repo_slug": "sepo-agent/sepo-agent",
-  "last_sync_at": "2026-07-21T09:03:54Z",
+  "last_sync_at": "2026-07-21T14:27:00Z",
   "last_activity_at": "2026-06-01T21:58:20Z",
   "cursors": {
-    "issues": "2026-07-21T09:03:54Z",
-    "pulls": "2026-07-21T09:03:54Z",
-    "discussions": "2026-07-21T09:03:54Z",
-    "commits": "2026-07-21T09:03:54Z"
+    "issues": "2026-07-21T14:27:00Z",
+    "pulls": "2026-07-21T14:27:00Z",
+    "discussions": "2026-07-21T14:27:00Z",
+    "commits": "2026-07-21T14:27:00Z"
   },
-  "last_run_url": "https://github.com/sepo-agent/sepo-agent/actions/runs/29816715611",
+  "last_run_url": "https://github.com/sepo-agent/sepo-agent/actions/runs/29839121602",
   "created_at": "2026-05-23T15:51:54.677Z",
-  "updated_at": "2026-07-21T09:03:57.186Z"
+  "updated_at": "2026-07-21T14:27:01.774Z"
 }
